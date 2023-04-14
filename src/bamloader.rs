@@ -1,4 +1,4 @@
-#![allow(unused)]
+// #![allow(unused)]
 // #[allow(unused_variables)]
 
 use std;
@@ -38,20 +38,20 @@ macro_rules! function {
     }};
 }
 
-macro_rules! dbg {
-    ($($x:tt)*) => {
-        {
-            #[cfg(debug_assertions)]
-            {
-                std::dbg!($($x)*)
-            }
-            #[cfg(not(debug_assertions))]
-            {
-                ($($x)*)
-            }
-        }
-    }    
-}
+// macro_rules! dbg {
+//     ($($x:tt)*) => {
+//         {
+//             #[cfg(debug_assertions)]
+//             {
+//                 std::dbg!($($x)*)
+//             }
+//             #[cfg(not(debug_assertions))]
+//             {
+//                 ($($x)*)
+//             }
+//         }
+//     }    
+// }
 
 #[derive(Debug)]
 pub enum BamErrorKind {
@@ -98,27 +98,8 @@ fn compress_text(text:&str)->Result<Vec<u8>,std::io::Error> {
     Ok(buffer)
 }
 
-// Decompress bytes into text
-// fn decompress_text(bytes: Vec<u8>) -> Result<String,std::io::Error> {
-//     let mut writer = Vec::new();
-//     let mut decoder = GzDecoder::new(writer);
-//     decoder.write_all(&bytes[..])?;
-//     writer = decoder.finish()?;
-//     let output = String::from_utf8(writer).unwrap_or(String::from("invalid buffer"));
-//     Ok(output)
-// }
-// fn decompress_bytes(bytes: Vec<u8>) -> Result<Vec<u8>,std::io::Error> {
-//     let mut writer = Vec::new();
-//     let mut decoder = GzDecoder::new(writer);
-//     decoder.write_all(&bytes[..])?;
-//     writer = decoder.finish()?;
-//     Ok(writer)
-//     // let output = String::from_utf8(writer).unwrap_or(String::from("invalid buffer"));
-//     // Ok(output)
-// }
 
 // A function to decompress byte array without gzip header using Decompress
-
 fn decompress_without_header(input: Vec<u8>) -> Result<Vec<u8>, std::io::Error> {
     // Create a new Decompress object with zlib_header set to false
     let mut decompress = Decompress::new(false);//_with_window_bits(false, 15);
@@ -136,12 +117,10 @@ fn decompress_without_header(input: Vec<u8>) -> Result<Vec<u8>, std::io::Error> 
             return Err(std::io::Error::new(ErrorKind::OutOfMemory, "block may be corrupted, size exceeded 65535"));
         }
         let mut extended = Vec::<u8>::with_capacity(buffer_size);
-        // println!("extend to {} bytes", extended.capacity());
         status = decompress.decompress_vec(
             &input[decompress.total_in() as usize..], 
             &mut extended,
             FlushDecompress::Finish)?;
-        // println!("status {:?}", status);
         output.extend(extended);
     }
 
@@ -150,12 +129,12 @@ fn decompress_without_header(input: Vec<u8>) -> Result<Vec<u8>, std::io::Error> 
     Ok(output)
 }
 
-fn decopress_with_window_bits(input:&[u8], shift:u8)->Result<Vec<u8>,std::io::Error> {
-    let mut dec = Decompress::new_with_window_bits(false, shift);
-    let mut buf:Vec<u8> = Vec::<u8>::new();
-    dec.decompress(input, &mut buf, flate2::FlushDecompress::Finish)?;
-    Ok(buf)
-}
+// fn decopress_with_window_bits(input:&[u8], shift:u8)->Result<Vec<u8>,std::io::Error> {
+//     let mut dec = Decompress::new_with_window_bits(false, shift);
+//     let mut buf:Vec<u8> = Vec::<u8>::new();
+//     dec.decompress(input, &mut buf, flate2::FlushDecompress::Finish)?;
+//     Ok(buf)
+// }
 
 // Calculate CRC32 checksum
 fn calculate_crc32(buffer:&Vec<u8>) -> u32 {
@@ -423,12 +402,12 @@ fn get_hex_string(buffer:&Vec<u8>, pos:usize, span:usize) -> String {
 pub fn retrieve_fastq(filename_bam:&String, output:&mut Box<dyn Write>, info:HashMap<&str,i32>)
     ->Result<HashMap<String,String>, BamHandleError> {
     let mut results:HashMap<String,String> = HashMap::new();
-    let mut n_seqs = 0;
-    let mut n_blocks = 0;
-    let mut n_corrupted_blocks = 0;
+    let mut n_seqs:i64 = 0;
+    let mut n_blocks:i64 = 0;
+    let mut n_corrupted_blocks:i64 = 0;
     let mut verbose:bool = false;
     let mut noqual:bool = false;
-    let mut limit:i32 = 0;
+    let mut limit:i64 = 0;
 
     // println!("{:?}", info.get("verbose"));
     eprintln!("input={}", filename_bam);
@@ -439,7 +418,7 @@ pub fn retrieve_fastq(filename_bam:&String, output:&mut Box<dyn Write>, info:Has
         } else if key == "noqual" && val > 0 {
             noqual = true;
         } else if key == "limit" {
-            limit = val;
+            limit = val as i64;
         }
     }
 
@@ -467,7 +446,6 @@ pub fn retrieve_fastq(filename_bam:&String, output:&mut Box<dyn Write>, info:Has
     }
     let l_text = LittleEndian::read_u32(&buffer[4..8]) as usize;
     let l_buffer = buffer.len() as usize;
-    let mut n_seqs:usize = 0;
     let mut scanmode:bool = false;
     buffer.clear();
 
@@ -636,6 +614,5 @@ pub fn retrieve_fastq(filename_bam:&String, output:&mut Box<dyn Write>, info:Has
     results.insert("n_sequences".to_string(), format!("{}", n_seqs).to_string());
     results.insert("n_blocks".to_string(), format!("{}", n_blocks).to_string());
     results.insert("n_corrupted".to_string(), format!("{}", n_corrupted_blocks).to_string());
-    // results[String::from("n_seqs")] = String::from(n_seqs.to_string());
     Ok(results)
 }
