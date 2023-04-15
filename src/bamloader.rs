@@ -6,20 +6,12 @@ use std::io;
 use std::fmt;
 use std::str;
 use std::fs::File;
-use std::io::BufReader;
-use std::io::Error;
+use std::io::{Error, ErrorKind, Read, Write, BufReader, Seek, SeekFrom};
 use std::collections::HashMap;
-use std::io::ErrorKind;
-use std::io::{Read,Write};
 use std::mem::MaybeUninit;
-use std::io::{Seek, SeekFrom};
 use byteorder::{ByteOrder, LittleEndian};
 
-use flate2::read::GzEncoder;
-use flate2::write::GzDecoder;
-use flate2::FlushDecompress;
-use flate2::Decompress;
-use flate2::Status;
+use flate2::{FlushDecompress, Decompress, Status};
 use crc32fast::Hasher;
 
 macro_rules! function {
@@ -65,7 +57,6 @@ pub enum BamErrorKind {
     InconsistentBlockSize = 7,
 }
 
-
 #[derive(Debug)]
 pub struct BamHandleError {
     line:u32,
@@ -91,13 +82,12 @@ impl fmt::Display for BamHandleError {
 }
 
 // Compress text into byte array
-fn compress_text(text:&str)->Result<Vec<u8>,std::io::Error> {
-    let mut buffer = Vec::new();
-    let mut encoder = GzEncoder::new(text.as_bytes(), flate2::Compression::default());
-    encoder.read_to_end(&mut buffer)?;
-    Ok(buffer)
-}
-
+// fn compress_text(text:&str)->Result<Vec<u8>,std::io::Error> {
+//     let mut buffer = Vec::new();
+//     let mut encoder = GzEncoder::new(text.as_bytes(), flate2::Compression::default());
+//     encoder.read_to_end(&mut buffer)?;
+//     Ok(buffer)
+// }
 
 // A function to decompress byte array without gzip header using Decompress
 fn decompress_without_header(input: Vec<u8>) -> Result<Vec<u8>, std::io::Error> {
@@ -143,10 +133,9 @@ fn calculate_crc32(buffer:&Vec<u8>) -> u32 {
     hasher.finalize()
 }
 
-fn bytes_to_int(bytes:&[u8]) -> i32 {
-    LittleEndian::read_i32(bytes)
-}
-
+// fn bytes_to_int(bytes:&[u8]) -> i32 {
+//     LittleEndian::read_i32(bytes)
+// }
 
 fn read_next_block(reader:&mut BufReader<File>)->Result<Vec<u8>, BamHandleError> {
     // Read first 4 bytes of ID1, ID2, CM, FLG
@@ -266,7 +255,7 @@ fn scan_next_block(reader:&mut BufReader<File>)->Result<Vec<u8>, BamHandleError>
     // ISIZE u32
 
     let mut buf:[u8;18] = [0;18];
-    let mut onebyte:[u8;1] = [0;1];
+    // let mut onebyte:[u8;1] = [0;1];
     let mut xlen:usize = 0;
     let mut block_size:usize = 0;
     match reader.read_exact(&mut buf) {
@@ -287,12 +276,31 @@ fn scan_next_block(reader:&mut BufReader<File>)->Result<Vec<u8>, BamHandleError>
                 break;
             }
         }
-        buf.rotate_left(1);
-        match reader.read_exact(&mut onebyte) {
+
+        let mut shift_bytes:usize = 18;
+        for i in 1..18 {
+            if buf[i] == 31 {
+                shift_bytes = i;
+                for j in 0..i {
+                    buf[j] = buf[i+j];
+                }
+            }
+        }
+        if shift_bytes > 0 {
+            for i in 0..shift_bytes {
+                buf[i] = buf[i + shift_bytes];
+            }
+        }
+        match reader.read_exact(&mut buf[18-shift_bytes..18]) {
             Err(_err)=>return Err(BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::BufferTerminated}),
             _ => (),
         }
-        buf[buf.len() - 1] = onebyte[0];
+        // buf.rotate_left(1);
+        // match reader.read_exact(&mut onebyte) {
+        //     Err(_err)=>return Err(BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::BufferTerminated}),
+        //     _ => (),
+        // }
+        // buf[buf.len() - 1] = onebyte[0];
     }
 
     // let subfield_length = LittleEndian::read_u16(&xbuf[2..4]);
@@ -396,8 +404,6 @@ fn get_hex_string(buffer:&Vec<u8>, pos:usize, span:usize) -> String {
     }    
     return hexstr;
 }
-
-
 
 pub fn retrieve_fastq(filename_bam:&String, output:&mut Box<dyn Write>, info:HashMap<&str,i32>)
     ->Result<HashMap<String,String>, BamHandleError> {
