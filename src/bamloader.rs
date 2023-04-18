@@ -104,7 +104,7 @@ fn decompress_without_header(input: Vec<u8>) -> Result<Vec<u8>, std::io::Error> 
     while status != Status::StreamEnd { // if buffer size is less than expected
         buffer_size *= 2;
         if buffer_size > 65535 * 2 { // extracted buffer must be less than 0x100000000
-            return Err(std::io::Error::new(ErrorKind::OutOfMemory, "block may be corrupted, size exceeded 65535"));
+            return Err(std::io::Error::new(ErrorKind::OutOfMemory, "probable corrupted block > 64kB"));
         }
         let mut extended = Vec::<u8>::with_capacity(buffer_size);
         status = decompress.decompress_vec(
@@ -133,110 +133,144 @@ fn calculate_crc32(buffer:&Vec<u8>) -> u32 {
     hasher.finalize()
 }
 
-// fn bytes_to_int(bytes:&[u8]) -> i32 {
-//     LittleEndian::read_i32(bytes)
+// Old and conservative reader function
+// fn read_next_block(reader:&mut BufReader<File>)->Result<Vec<u8>, BamHandleError> {
+//     // Read first 4 bytes of ID1, ID2, CM, FLG
+//     let mut buf:[u8;4] = [0;4];
+//     let current_pos = reader.seek(SeekFrom::Current(0)).unwrap();
+//     match reader.read_exact(&mut buf) {
+//         Err(_err)=>return Err(BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::BufferTerminated}),
+//         _ => (),
+//     }
+//     // println!("First 4 bytes : {}, {}, {}, {}", buf[0], buf[1], buf[2], buf[3]);
+//     // Scan until identifier and constant match
+//     loop {
+//         if buf == [31, 139, 8, 4] {
+//             break;
+//         }
+//         let mut onebyte:[u8;1] = [0;1];
+//         match reader.read_exact(&mut onebyte) {
+//             Err(_err)=>return Err(BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::BufferTerminated}),
+//             _ => (),
+//         }
+//         buf.rotate_left(1);
+//         buf[3] = onebyte[0];
+//         // println!("First 4 bytes : {}, {}, {}, {}", buf[0], buf[1], buf[2], buf[3]);
+//     }
+//     // read MTIME(u16), XFL(u8), OS(u8), XLEN(u16)
+//     let mut buf:[u8;8] = [0;8];
+//     match reader.read_exact(&mut buf) {
+//         Err(_err)=>return Err(BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::BufferTerminated}),
+//         _ => (),
+//     }
+//     let xlen = LittleEndian::read_u16(&buf[6..8]);
+//     // println!("extra subfield : {}", xlen);
+
+//     // SI1(u8), SI2(u8), SLEN(u16), BSIZE(u16)
+//     let mut xbuf = Vec::<u8>::with_capacity(xlen as usize);
+//     unsafe {
+//         xbuf.set_len(xlen as usize);
+//     }
+//     match reader.read_exact(&mut xbuf) {
+//         Err(_err)=>return Err(BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::BufferTerminated}),
+//         _ => (),
+//     }
+
+//     if xbuf[0..2] != [66, 67] {
+//         return Err(BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::BlockCorrupted});
+//     }
+//     let subfield_length = LittleEndian::read_u16(&xbuf[2..4]);
+//     let block_size = LittleEndian::read_u16(&xbuf[4..6]);
+//     // println!("xlen = {}, subfield length = {}, block size = {}", xlen, subfield_length, block_size);
+//     let compressed_data_size = block_size - xlen - 19;
+//     // println!("compressed data size {} ", compressed_data_size);
+
+//     let mut cdata = vec![0u8;compressed_data_size as usize];
+//     match reader.read_exact(&mut cdata) {
+//         Err(_err)=>return Err(BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::BufferTerminated}),
+//         _ => (),
+//     }
+//     // read CRC32 and expected size
+//     let mut tbuf:[u8;8] = [0;8];
+//     match reader.read_exact(&mut tbuf) {
+//         Err(_err)=>return Err(BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::BufferTerminated}),
+//         _ => (),
+//     }
+
+//     let mut buffer:Vec<u8> = Vec::<u8>::new();
+//     let mut crc32_calc:u32 = 0;
+//     let mut crc32_file:u32 = 0;
+//     let input_size = cdata.len();
+
+//     match decompress_without_header(cdata) {
+//         Ok(b_)=>buffer=b_, // ; text = String::from_utf8(b_).unwrap()},
+//         // Ok(b_)=>{println!("OK! : {} bytes", b_.len()); buffer=b_}, // ; text = String::from_utf8(b_).unwrap()},
+//         Err(e_) => {
+//             println!("{:?} AT {}", e_, current_pos);
+//             // let msg = format!("{:?} at {}", e_, current_pos);
+//             return Err(
+//                 BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::BlockCorrupted}
+//                 )
+//             },
+//     }
+//     // cdata
+//     crc32_calc = calculate_crc32(&buffer);
+//     crc32_file = LittleEndian::read_u32(&tbuf[0..4]);
+//     if crc32_calc != crc32_file {
+//         println!("CRC32 : {:X} <=> {:X} ({} -> {} bytes)", crc32_calc, crc32_file, input_size, buffer.len());
+//         return Err(BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::InconsistentChecksum});
+//     }
+
+//     let input_size = LittleEndian::read_u32(&tbuf[4..8]) as usize;
+//     if input_size != buffer.len() {
+//         return Err(
+//             BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::InconsistentBlockSize}
+//             )
+//     }
+//     // println!("{}:{} {} bytes, CRC32={:x}", function!().to_string(), line!(), buffer.len(), crc32_file);
+
+//     Ok(buffer)
 // }
 
-fn read_next_block(reader:&mut BufReader<File>)->Result<Vec<u8>, BamHandleError> {
-    // Read first 4 bytes of ID1, ID2, CM, FLG
-    let mut buf:[u8;4] = [0;4];
+// Read next data block without scan. This funtion outputs error immediately if the block is corrupted.
+fn read_next_block(reader: &mut BufReader<File>)->Result<Vec<u8>, BamHandleError> {
+
+    let mut buf:[u8;18] = [0;18];
+    // let mut xlen:usize = 0;
+    // let mut block_size:usize = 0;
+    let current_pos = reader.seek(SeekFrom::Current(0)).unwrap();
+
+    // Read first 18 bytes header
     match reader.read_exact(&mut buf) {
-        Err(_err)=>return Err(BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::BufferTerminated}),
+        Err(_err)=>return Err(
+            BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::BufferTerminated}
+        ),
         _ => (),
     }
-    // println!("First 4 bytes : {}, {}, {}, {}", buf[0], buf[1], buf[2], buf[3]);
-    // Scan until identifier and constant match
-    loop {
-        if buf == [31, 139, 8, 4] {
-            break;
-        }
-        let mut onebyte:[u8;1] = [0;1];
-        match reader.read_exact(&mut onebyte) {
+
+    if buf[0..4] != [31,139,8,4] || buf[12..14] != [66,67] {
+        return Err(BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::IncorrectGzipMagicNumber});
+    }
+
+    let xlen = LittleEndian::read_u16(&buf[10..12]) as usize;
+    let block_size = LittleEndian::read_u16(&buf[16..18]) as usize;
+    // read extra xlen - 2 bytes
+    if xlen >= 6 && block_size > xlen + 19 {
+        let mut nullbuf:Vec<u8> = Vec::<u8>::with_capacity(xlen - 6); // skip extra fields
+        match reader.read_exact(&mut nullbuf) {
             Err(_err)=>return Err(BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::BufferTerminated}),
             _ => (),
         }
-        buf.rotate_left(1);
-        buf[3] = onebyte[0];
-        // println!("First 4 bytes : {}, {}, {}, {}", buf[0], buf[1], buf[2], buf[3]);
+        let compressed_data_size = block_size - xlen - 19;
+        let datablock = decompress_and_validate(reader, compressed_data_size)?;
+        Ok(datablock)
+    } else {
+        eprintln!("Invalid block size AT {}", current_pos);            
+        Err(BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::BlockCorrupted})
     }
-    // read MTIME(u16), XFL(u8), OS(u8), XLEN(u16)
-    let mut buf:[u8;8] = [0;8];
-    match reader.read_exact(&mut buf) {
-        Err(_err)=>return Err(BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::BufferTerminated}),
-        _ => (),
-    }
-    let xlen = LittleEndian::read_u16(&buf[6..8]);
-    // println!("extra subfield : {}", xlen);
-
-    // SI1(u8), SI2(u8), SLEN(u16), BSIZE(u16)
-    let mut xbuf = Vec::<u8>::with_capacity(xlen as usize);
-    unsafe {
-        xbuf.set_len(xlen as usize);
-    }
-    // let mut xbuf:[MaybeUninit<Vec<u8>>;xlen as usize] = unsafe {
-    //     MaybeUninit::uninit().assume_init()
-    // };
-    // let mut xbuf = vec![0u8;xlen as usize];
-    match reader.read_exact(&mut xbuf) {
-        Err(_err)=>return Err(BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::BufferTerminated}),
-        _ => (),
-    }
-
-    if xbuf[0..2] != [66, 67] {
-        return Err(BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::BlockCorrupted});
-    }
-    let subfield_length = LittleEndian::read_u16(&xbuf[2..4]);
-    let block_size = LittleEndian::read_u16(&xbuf[4..6]);
-    // println!("xlen = {}, subfield length = {}, block size = {}", xlen, subfield_length, block_size);
-    let compressed_data_size = block_size - xlen - 19;
-    // println!("compressed data size {} ", compressed_data_size);
-
-    let mut cdata = vec![0u8;compressed_data_size as usize];
-    match reader.read_exact(&mut cdata) {
-        Err(_err)=>return Err(BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::BufferTerminated}),
-        _ => (),
-    }
-    // read CRC32 and expected size
-    let mut tbuf:[u8;8] = [0;8];
-    match reader.read_exact(&mut tbuf) {
-        Err(_err)=>return Err(BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::BufferTerminated}),
-        _ => (),
-    }
-
-    let mut buffer:Vec<u8> = Vec::<u8>::new();
-    let mut crc32_calc:u32 = 0;
-    let mut crc32_file:u32 = 0;
-    let input_size = cdata.len();
-
-    match decompress_without_header(cdata) {
-        Ok(b_)=>buffer=b_, // ; text = String::from_utf8(b_).unwrap()},
-        // Ok(b_)=>{println!("OK! : {} bytes", b_.len()); buffer=b_}, // ; text = String::from_utf8(b_).unwrap()},
-        Err(e_) => {
-            println!("{:?}", e_);
-            return Err(
-                BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::BlockCorrupted}
-                )
-            },
-    }
-    // cdata
-    crc32_calc = calculate_crc32(&buffer);
-    crc32_file = LittleEndian::read_u32(&tbuf[0..4]);
-    if crc32_calc != crc32_file {
-        println!("CRC32 : {:X} <=> {:X} ({} -> {} bytes)", crc32_calc, crc32_file, input_size, buffer.len());
-        return Err(BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::InconsistentChecksum});
-    }
-
-    let input_size = LittleEndian::read_u32(&tbuf[4..8]) as usize;
-    if input_size != buffer.len() {
-        return Err(
-            BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::InconsistentBlockSize}
-            )
-    }
-    // println!("{}:{} {} bytes, CRC32={:x}", function!().to_string(), line!(), buffer.len(), crc32_file);
-
-    Ok(buffer)
 }
 
+/// Scan header candidate position from file stream and read data block
 fn scan_next_block(reader:&mut BufReader<File>)->Result<Vec<u8>, BamHandleError> {
     // ID1   0-0 u8 = 31 
     // ID2   1-1 u8 = 139
@@ -255,9 +289,10 @@ fn scan_next_block(reader:&mut BufReader<File>)->Result<Vec<u8>, BamHandleError>
     // ISIZE u32
 
     let mut buf:[u8;18] = [0;18];
-    // let mut onebyte:[u8;1] = [0;1];
     let mut xlen:usize = 0;
     let mut block_size:usize = 0;
+    let current_pos = reader.seek(SeekFrom::Current(0)).unwrap();
+
     match reader.read_exact(&mut buf) {
         Err(_err)=>return Err(BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::BufferTerminated}),
         _ => (),
@@ -281,75 +316,78 @@ fn scan_next_block(reader:&mut BufReader<File>)->Result<Vec<u8>, BamHandleError>
         for i in 1..18 {
             if buf[i] == 31 {
                 shift_bytes = i;
-                for j in 0..i {
+                for j in 0..18-i {
                     buf[j] = buf[i+j];
                 }
-            }
-        }
-        if shift_bytes > 0 {
-            for i in 0..shift_bytes {
-                buf[i] = buf[i + shift_bytes];
+                shift_bytes = i;
+                break;
             }
         }
         match reader.read_exact(&mut buf[18-shift_bytes..18]) {
             Err(_err)=>return Err(BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::BufferTerminated}),
             _ => (),
         }
-        // buf.rotate_left(1);
-        // match reader.read_exact(&mut onebyte) {
-        //     Err(_err)=>return Err(BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::BufferTerminated}),
-        //     _ => (),
-        // }
-        // buf[buf.len() - 1] = onebyte[0];
     }
 
-    // let subfield_length = LittleEndian::read_u16(&xbuf[2..4]);
-    // let block_size = LittleEndian::read_u16(&xbuf[4..6]);
-    // println!("xlen = {}, subfield length = {}, block size = {}", xlen, subfield_length, block_size);
     let compressed_data_size = block_size - xlen - 19;
-    let mut cdata = vec![0u8;compressed_data_size as usize];
+    let datablock = decompress_and_validate(reader, compressed_data_size)?;
+    Ok(datablock)
+
+}
+
+fn decompress_and_validate(reader:&mut BufReader<File>, datasize:usize)->Result<Vec<u8>, BamHandleError> {
+    // println!("xlen = {}, subfield length = {}, block size = {}", xlen, subfield_length, block_size);
+    // let compressed_data_size = block_size - xlen - 19;
+    let current_pos = reader.seek(SeekFrom::Current(0)).unwrap();
+    let mut cdata = vec![0u8;datasize as usize];
     match reader.read_exact(&mut cdata) {
-        Err(_err)=>return Err(BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::BufferTerminated}),
+        Err(_err)=>return Err(
+            BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::BufferTerminated}
+        ),
         _ => (),
     }
     // read CRC32 and expected size
     let mut tbuf:[u8;8] = [0;8];
     match reader.read_exact(&mut tbuf) {
-        Err(_err)=>return Err(BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::BufferTerminated}),
+        Err(_err)=>return Err(
+            BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::BufferTerminated}
+        ),
         _ => (),
     }
 
+    // Gzip decompression
     let mut buffer:Vec<u8> = Vec::<u8>::new();
-    let mut crc32_calc:u32 = 0;
-    let mut crc32_file:u32 = 0;
     let input_size = cdata.len();
-
     match decompress_without_header(cdata) {
-        Ok(b_)=>buffer=b_, // ; text = String::from_utf8(b_).unwrap()},
-        // Ok(b_)=>{println!("OK! : {} bytes", b_.len()); buffer=b_}, // ; text = String::from_utf8(b_).unwrap()},
+        Ok(b_)=>buffer=b_, 
         Err(e_) => {
-            eprintln!("{:?}", e_);
+            eprintln!("{:?} AT {}", e_, current_pos);
             return Err(
                 BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::BlockCorrupted}
                 )
             },
     }
-    // cdata
-    crc32_calc = calculate_crc32(&buffer);
-    crc32_file = LittleEndian::read_u32(&tbuf[0..4]);
-    if crc32_calc != crc32_file {
-        eprintln!("CRC32 : {:X} <=> {:X} ({} -> {} bytes)", crc32_calc, crc32_file, input_size, buffer.len());
-        return Err(BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::InconsistentChecksum});
-    }
 
+    // Data validation
     let input_size = LittleEndian::read_u32(&tbuf[4..8]) as usize;
     if input_size != buffer.len() {
+        eprintln!("Inconsist : ({} -> {} bytes) AT {}", input_size, buffer.len(), current_pos);
         return Err(
-            BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::InconsistentBlockSize}
-            )
+            BamHandleError{
+                line:line!(), function:function!().to_string(), kind:BamErrorKind::InconsistentBlockSize
+            });
+    } 
+
+    let crc32_calc = calculate_crc32(&buffer);
+    let crc32_file = LittleEndian::read_u32(&tbuf[0..4]);
+    if crc32_calc != crc32_file {
+        eprintln!("CRC32 : {:X} <=> {:X} AT {}", crc32_calc, crc32_file, current_pos);
+        return Err(
+            BamHandleError{
+                line:line!(), function:function!().to_string(), kind:BamErrorKind::InconsistentChecksum
+            });
     }
     // println!("{}:{} {} bytes, CRC32={:x}", function!().to_string(), line!(), buffer.len(), crc32_file);
-
     Ok(buffer)
 }
 
@@ -408,24 +446,28 @@ fn get_hex_string(buffer:&Vec<u8>, pos:usize, span:usize) -> String {
 pub fn retrieve_fastq(filename_bam:&String, output:&mut Box<dyn Write>, info:HashMap<&str,i32>)
     ->Result<HashMap<String,String>, BamHandleError> {
     let mut results:HashMap<String,String> = HashMap::new();
-    let mut n_seqs:i64 = 0;
-    let mut n_blocks:i64 = 0;
-    let mut n_corrupted_blocks:i64 = 0;
+    let mut n_seqs:u64 = 0;
+    let mut n_bases:u64 = 0;
+    let mut n_blocks:u64 = 0;
+    let mut n_corrupted_blocks:u64 = 0;
     let mut verbose:bool = false;
     let mut noqual:bool = false;
-    let mut limit:i64 = 0;
+    let mut limit:u64 = 0;
 
     // println!("{:?}", info.get("verbose"));
-    eprintln!("input={}", filename_bam);
+    // eprintln!("input={}", filename_bam);
     for (key, val) in info {
-        eprintln!("{} = {}", key, val);
+        // eprintln!("{} = {}", key, val);
         if key == "verbose" && val > 0 {
             verbose = true;
         } else if key == "noqual" && val > 0 {
             noqual = true;
         } else if key == "limit" {
-            limit = val as i64;
+            limit = if val < 0 { 0 } else { val as u64 };
         }
+    }
+    if verbose {
+        eprintln!("processing {}", filename_bam);
     }
 
     // output.write("hello".as_bytes());
@@ -433,13 +475,13 @@ pub fn retrieve_fastq(filename_bam:&String, output:&mut Box<dyn Write>, info:Has
     // read header
     // fn read_next_block(handler:&mut BufReader)->Result<Vec<u8>, Box<error::Error>> {
     let file_in = std::fs::File::open(filename_bam).unwrap();
-    let mut filesize = 0;
+    let filesize =
     match file_in.metadata() {
-        Ok(m_) => filesize = m_.len(),
+        Ok(m_) => m_.len(),
         Err(e_) => {
             return Err(BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::NoBAMFile});
         },
-    }
+    };
 
     let mut reader:BufReader<File> = BufReader::new(file_in);
     let mut buffer:Vec<u8> = Vec::new();
@@ -455,6 +497,7 @@ pub fn retrieve_fastq(filename_bam:&String, output:&mut Box<dyn Write>, info:Has
     let mut scanmode:bool = false;
     buffer.clear();
 
+/////////////////////////////////////////
     // reader.seek(SeekFrom::Start(13520742501));//SeekFrom::Start(filesize * 18 / 100));
 
     loop {
@@ -472,7 +515,7 @@ pub fn retrieve_fastq(filename_bam:&String, output:&mut Box<dyn Write>, info:Has
                 },
             }
         } else {
-            match read_next_block(&mut reader) {
+            match read_next_block(&mut reader) { // fill buffer until the end of block
                 Ok(mut _data) => {if buffer.len() == 0 {buffer=_data} else {buffer.append(&mut _data)}},
                 Err(_err) => {
                     #[cfg(debug_assertions)]
@@ -602,6 +645,7 @@ pub fn retrieve_fastq(filename_bam:&String, output:&mut Box<dyn Write>, info:Has
                     // println!("{}\t{}\t{}\t{}", seq_name, l_seq, seq_display, qual_display);
                 }
                 n_seqs += 1;
+                n_bases += sequence.len() as u64;
 
                 if verbose && n_seqs % 1000 == 0 {
                     let current_pos = reader.seek(SeekFrom::Current(0)).unwrap();
@@ -617,7 +661,9 @@ pub fn retrieve_fastq(filename_bam:&String, output:&mut Box<dyn Write>, info:Has
         }
     }
 
+    results.insert("filesize".to_string(), format!("{}", filesize).to_string());
     results.insert("n_sequences".to_string(), format!("{}", n_seqs).to_string());
+    results.insert("n_bases".to_string(), format!("{}", n_bases).to_string());
     results.insert("n_blocks".to_string(), format!("{}", n_blocks).to_string());
     results.insert("n_corrupted".to_string(), format!("{}", n_corrupted_blocks).to_string());
     Ok(results)
