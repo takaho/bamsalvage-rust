@@ -4,7 +4,13 @@ version = "0.1.3"
 edition = "2021"
 license = "MIT"
 description = "Rust version of bamsalvage, retrieving sequences from a corrupted BAM file as much as possible."
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+authors = ["Takaho A. Endo <takaho.endo@gmail.com>"]
+readme = "README.md"
+homepage = "https://github.com/takaho/bamsalvage-rust"
+repository = "https://github.com/takaho/bamsalvage-rust"
+documentation = "https://github.com/takaho/bamsalvage-rust"
+categories = ["command-line-utilities", "science::bioinformatics"]
+keywords = ["bamsalvage", "BAM", "long-read", "fasta", "fastq"]
 
 [dependencies]
 byteorder = "1.4.3"
