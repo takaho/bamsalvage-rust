@@ -236,8 +236,6 @@ fn calculate_crc32(buffer:&Vec<u8>) -> u32 {
 fn read_next_block(reader: &mut BufReader<File>)->Result<Vec<u8>, BamHandleError> {
 
     let mut buf:[u8;18] = [0;18];
-    // let mut xlen:usize = 0;
-    // let mut block_size:usize = 0;
     let current_pos = reader.seek(SeekFrom::Current(0)).unwrap();
 
     // Read first 18 bytes header
