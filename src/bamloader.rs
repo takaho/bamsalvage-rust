@@ -327,6 +327,17 @@ fn scan_next_block(reader:&mut BufReader<File>)->Result<Vec<u8>, BamHandleError>
         }
     }
 
+    if xlen >= 6 && block_size > xlen + 19 {
+        let skip_bytes = xlen - 6;
+        let mut filler:Vec<u8> = Vec::<u8>::with_capacity(skip_bytes);
+        // let mut filler:[u8;skip_bytes] = [0;skip_bytes];
+        // let mut filler[u8:skip_bytes] = u8[0;skip_bytes];
+        match reader.read_exact(&mut filler) {
+            Err(_err)=>return Err(BamHandleError{line:line!(), function:function!().to_string(), kind:BamErrorKind::BufferTerminated}),
+            _=>(),
+        }
+    }
+
     let compressed_data_size = block_size - xlen - 19;
     let datablock = decompress_and_validate(reader, compressed_data_size)?;
     Ok(datablock)
